@@ -14,7 +14,7 @@
 	<string>com.newexam.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>CFBundleName</key>
+	<key>娇姐专用考试</key>
 	<string>untitled</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -68,4 +68,5 @@
 	</array>
 </dict>
 </plist>
+
 
