@@ -1,23 +1,40 @@
-scripts:
+workflows:
+  ios-workflow:
+    name: iOS Build Workflow
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+    scripts:
       - name: Get Flutter packages
         script: |
           flutter pub get
-      - name: Clean build artifacts
+      - name: Force Clean and Prepare
         script: |
-          # 强制删除可能导致冲突的 build 文件夹
+          # 彻底删除旧的构建残留
           flutter clean
           rm -rf build
-          rm -rf ios/Pods
-          rm -rf ios/Podfile.lock
+          # 进入 ios 目录清理 pod 缓存
+          cd ios
+          rm -rf Pods
+          rm -rf Podfile.lock
+          rm -rf .symlinks
+          cd ..
       - name: Build Flutter iOS
         script: |
-          # 核心编译命令
+          # 核心编译命令：不签名打包
           flutter build ios --release --no-codesign
-      - name: Post-build (Create IPA)
+      - name: Post-build (Convert to IPA)
         script: |
-          set -e
+          set -e # 遇到错误立即停止
+          # 准备导出目录
           mkdir -p Payload
-          # 注意：如果是新版 Flutter，路径可能是 build/ios/iphoneos/Runner.app
+          # 将编译出的 .app 复制到 Payload 文件夹
           cp -r build/ios/iphoneos/Runner.app Payload/
+          # 压缩成 ipa
           zip -r Runner.ipa Payload
+          # 移动到 Codemagic 指定的构件导出目录
           mv Runner.ipa $CM_EXPORT_DIR/
+    artifacts:
+      - $CM_EXPORT_DIR/Runner.ipa
