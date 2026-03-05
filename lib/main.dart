@@ -1,0 +1,277 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+void main() => runApp(const ExamApp());
+
+class ExamApp extends StatelessWidget {
+  const ExamApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: '娇姐专用考试系统',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+      ),
+      home: const ExamPage(),
+    );
+  }
+}
+
+class ExamPage extends StatefulWidget {
+  const ExamPage({super.key});
+
+  @override
+  State<ExamPage> createState() => _ExamPageState();
+}
+
+class _ExamPageState extends State<ExamPage> {
+  // 核心数据变量
+  List<dynamic> allQuestions = [];
+  int currentIndex = 0;
+  List<int> selectedIndexes = [];
+  double totalScore = 0;
+  bool isLoaded = false;
+
+  // 计时器变量
+  Timer? _timer;
+  int _secondsRemaining = 60 * 60; // 60分钟
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAndGenerateExam();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // 加载题库并随机组卷
+  Future<void> _loadAndGenerateExam() async {
+    try {
+      final String response = await rootBundle.loadString('assets/questions.json');
+      final List<dynamic> data = json.decode(response);
+// --- 新增：自动补全判断题选项的逻辑 ---
+      for (var item in data) {
+        if (item['type'] == "判断题") {
+          List<dynamic> options = item['options'];
+          if (options.isEmpty) {
+            // 如果选项为空，自动补上
+            item['options'] = ["正确", "错误"];
+          }
+        }
+      }
+      // ------------------------------------
+      // 按题型分类
+      List<dynamic> singles = data.where((i) => i['type'] == "单选题").toList();
+      List<dynamic> multis = data.where((i) => i['type'] == "多选题").toList();
+      List<dynamic> judges = data.where((i) => i['type'] == "判断题").toList();
+
+      // 随机洗牌
+      singles.shuffle();
+      multis.shuffle();
+      judges.shuffle();
+
+      setState(() {
+        // 抽取题目：单选40，多选15，判断15
+        allQuestions = [
+          ...singles.take(40),
+          ...multis.take(15),
+          ...judges.take(15),
+        ];
+        // 全局乱序，让题型混合
+        allQuestions.shuffle();
+
+        isLoaded = true;
+        _secondsRemaining = 60 * 60; // 重置时间
+        _startTimer();
+      });
+    } catch (e) {
+      debugPrint("加载失败: $e");
+    }
+  }
+
+  // 启动倒计时
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining > 0) {
+        setState(() => _secondsRemaining--);
+      } else {
+        _timer?.cancel();
+        _showResult(isTimeUp: true);
+      }
+    });
+  }
+
+  // 格式化时间显示
+  String get _timeDisplay {
+    int m = _secondsRemaining ~/ 60;
+    int s = _secondsRemaining % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  // 处理下一题逻辑
+  void _handleNext() {
+    // 判分
+    List<dynamic> correctAnswers = allQuestions[currentIndex]['answer'];
+    List<int> currentSelect = List<int>.from(selectedIndexes)..sort();
+    List<int> currentCorrect = List<int>.from(correctAnswers)..sort();
+
+    if (currentSelect.toString() == currentCorrect.toString()) {
+      String type = allQuestions[currentIndex]['type'];
+      if (type == "单选题") {
+        totalScore += 1;
+      } else {
+        totalScore += 2; // 多选和判断 2分
+      }
+    }
+
+    if (currentIndex < allQuestions.length - 1) {
+      setState(() {
+        currentIndex++;
+        selectedIndexes = [];
+      });
+    } else {
+      _showResult();
+    }
+  }
+
+  // 显示结果弹窗
+  void _showResult({bool isTimeUp = false}) {
+    _timer?.cancel();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(isTimeUp ? "考试时间到！" : "提交成功"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("您的最终得分"),
+            Text("${totalScore.toInt()}",
+                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.indigo)),
+            Text("总分: 100分 (40*1 + 30*2)", style: const TextStyle(color: Colors.grey)),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() {
+                isLoaded = false;
+                currentIndex = 0;
+                totalScore = 0;
+                selectedIndexes = [];
+              });
+              _loadAndGenerateExam();
+            },
+            child: const Text("重新模拟考试"),
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isLoaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final q = allQuestions[currentIndex];
+    bool isMultiple = q['type'] == "多选题";
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text("在线模拟考试"),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(30),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              "剩余时间: $_timeDisplay",
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _secondsRemaining < 300 ? Colors.red : Colors.black87
+              ),
+            ),
+          ),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 进度和题型
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Chip(label: Text(q['type']), backgroundColor: Colors.indigo.shade100),
+                Text("第 ${currentIndex + 1} / ${allQuestions.length} 题"),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // 题干
+            Text(q['title'], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            // 选项列表
+            Expanded(
+              child: ListView.builder(
+                itemCount: q['options'].length,
+                itemBuilder: (context, index) {
+                  bool selected = selectedIndexes.contains(index);
+                  return Card(
+                    elevation: selected ? 4 : 0,
+                    color: selected ? Colors.indigo.shade50 : Colors.grey.shade100,
+                    child: ListTile(
+                      leading: Icon(
+                        isMultiple
+                            ? (selected ? Icons.check_box : Icons.check_box_outline_blank)
+                            : (selected ? Icons.radio_button_checked : Icons.radio_button_off),
+                        color: Colors.indigo,
+                      ),
+                      title: Text(q['options'][index]),
+                      onTap: () {
+                        setState(() {
+                          if (isMultiple) {
+                            selected ? selectedIndexes.remove(index) : selectedIndexes.add(index);
+                          } else {
+                            selectedIndexes = [index];
+                          }
+                        });
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            // 确认/下一题按钮
+            SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: ElevatedButton(
+                onPressed: selectedIndexes.isEmpty ? null : _handleNext,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey.shade300,
+                ),
+                child: Text(currentIndex == allQuestions.length - 1 ? "提交试卷" : "下一题"),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
