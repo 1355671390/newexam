@@ -12,6 +12,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: '娇姐复习专用', // 修改这里
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: const QuizPage(),
     );
